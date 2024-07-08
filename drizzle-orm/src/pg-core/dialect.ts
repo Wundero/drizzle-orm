@@ -1272,7 +1272,9 @@ export class PgDialect {
 		}
 
 		if (selection.length === 0) {
-			throw new DrizzleError({ message: `No fields selected for table "${tableConfig.tsName}" ("${tableAlias} [${realAlias}]")` });
+			throw new DrizzleError({
+				message: `No fields selected for table "${tableConfig.tsName}" ("${tableAlias} [${realAlias}]")`
+			});
 		}
 
 		let result;
