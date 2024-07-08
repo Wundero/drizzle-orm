@@ -135,6 +135,7 @@ export class SQLiteRelationalQuery<TType extends 'sync' | 'async', TResult> exte
 			tableConfig: this.tableConfig,
 			queryConfig: this.config,
 			tableAlias: this.tableConfig.tsName,
+			tableAliasMap: new Map()
 		}).sql as SQL;
 	}
 
@@ -174,6 +175,7 @@ export class SQLiteRelationalQuery<TType extends 'sync' | 'async', TResult> exte
 			tableConfig: this.tableConfig,
 			queryConfig: this.config,
 			tableAlias: this.tableConfig.tsName,
+			tableAliasMap: new Map()
 		});
 
 		const builtQuery = this.dialect.sqlToQuery(query.sql as SQL);

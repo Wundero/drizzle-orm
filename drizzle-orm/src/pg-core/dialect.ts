@@ -1077,6 +1077,7 @@ export class PgDialect {
 		tableConfig,
 		queryConfig: config,
 		tableAlias,
+		tableAliasMap,
 		nestedQueryRelation,
 		joinOn,
 	}: {
@@ -1087,11 +1088,14 @@ export class PgDialect {
 		tableConfig: TableRelationalConfig;
 		queryConfig: true | DBQueryConfig<'many', true>;
 		tableAlias: string;
+		tableAliasMap: Map<string, string>;
 		nestedQueryRelation?: Relation;
 		joinOn?: SQL;
 	}): BuildRelationalQueryResult<PgTable, PgColumn> {
 		let selection: BuildRelationalQueryResult<PgTable, PgColumn>['selection'] = [];
 		let limit, offset, orderBy: NonNullable<PgSelectConfig['orderBy']> = [], where;
+		const realAlias = tableAliasMap.get(tableAlias) ?? `t${tableAliasMap.size}`;
+		tableAliasMap.set(tableAlias, realAlias);
 		const joins: PgSelectJoinConfig[] = [];
 
 		if (config === true) {
@@ -1101,21 +1105,21 @@ export class PgDialect {
 			) => ({
 				dbKey: value.name,
 				tsKey: key,
-				field: aliasedTableColumn(value as PgColumn, tableAlias),
+				field: aliasedTableColumn(value as PgColumn, realAlias),
 				relationTableTsKey: undefined,
 				isJson: false,
 				selection: [],
 			}));
 		} else {
 			const aliasedColumns = Object.fromEntries(
-				Object.entries(tableConfig.columns).map(([key, value]) => [key, aliasedTableColumn(value, tableAlias)]),
+				Object.entries(tableConfig.columns).map(([key, value]) => [key, aliasedTableColumn(value, realAlias)]),
 			);
 
 			if (config.where) {
 				const whereSql = typeof config.where === 'function'
 					? config.where(aliasedColumns, getOperators())
 					: config.where;
-				where = whereSql && mapColumnsInSQLToAlias(whereSql, tableAlias);
+				where = whereSql && mapColumnsInSQLToAlias(whereSql, realAlias);
 			}
 
 			const fieldsSelection: { tsKey: string; value: PgColumn | SQL.Aliased }[] = [];
@@ -1176,7 +1180,7 @@ export class PgDialect {
 				for (const [tsKey, value] of Object.entries(extras)) {
 					fieldsSelection.push({
 						tsKey,
-						value: mapColumnsInAliasedSQLToAlias(value, tableAlias),
+						value: mapColumnsInAliasedSQLToAlias(value, realAlias),
 					});
 				}
 			}
@@ -1187,7 +1191,7 @@ export class PgDialect {
 				selection.push({
 					dbKey: is(value, SQL.Aliased) ? value.fieldAlias : tableConfig.columns[tsKey]!.name,
 					tsKey,
-					field: is(value, Column) ? aliasedTableColumn(value, tableAlias) : value,
+					field: is(value, Column) ? aliasedTableColumn(value, realAlias) : value,
 					relationTableTsKey: undefined,
 					isJson: false,
 					selection: [],
@@ -1202,9 +1206,9 @@ export class PgDialect {
 			}
 			orderBy = orderByOrig.map((orderByValue) => {
 				if (is(orderByValue, Column)) {
-					return aliasedTableColumn(orderByValue, tableAlias) as PgColumn;
+					return aliasedTableColumn(orderByValue, realAlias) as PgColumn;
 				}
-				return mapColumnsInSQLToAlias(orderByValue, tableAlias);
+				return mapColumnsInSQLToAlias(orderByValue, realAlias);
 			});
 
 			limit = config.limit;
@@ -1222,11 +1226,13 @@ export class PgDialect {
 				const relationTableName = getTableUniqueName(relation.referencedTable);
 				const relationTableTsName = tableNamesMap[relationTableName]!;
 				const relationTableAlias = `${tableAlias}_${selectedRelationTsKey}`;
+				const relationRealAlias = `t${tableAliasMap.size}`;
+				tableAliasMap.set(relationTableAlias, relationRealAlias);
 				const joinOn = and(
 					...normalizedRelation.fields.map((field, i) =>
 						eq(
-							aliasedTableColumn(normalizedRelation.references[i]!, relationTableAlias),
-							aliasedTableColumn(field, tableAlias),
+							aliasedTableColumn(normalizedRelation.references[i]!, relationRealAlias),
+							aliasedTableColumn(field, realAlias),
 						)
 					),
 				);
@@ -1242,14 +1248,15 @@ export class PgDialect {
 							: { ...selectedRelationConfigValue, limit: 1 })
 						: selectedRelationConfigValue,
 					tableAlias: relationTableAlias,
+					tableAliasMap,
 					joinOn,
 					nestedQueryRelation: relation,
 				});
-				const field = sql`${sql.identifier(relationTableAlias)}.${sql.identifier('data')}`.as(selectedRelationTsKey);
+				const field = sql`${sql.identifier(relationRealAlias)}.${sql.identifier('data')}`.as(selectedRelationTsKey);
 				joins.push({
 					on: sql`true`,
-					table: new Subquery(builtRelation.sql as SQL, {}, relationTableAlias),
-					alias: relationTableAlias,
+					table: new Subquery(builtRelation.sql as SQL, {}, relationRealAlias),
+					alias: relationRealAlias,
 					joinType: 'left',
 					lateral: true,
 				});
@@ -1265,7 +1272,7 @@ export class PgDialect {
 		}
 
 		if (selection.length === 0) {
-			throw new DrizzleError({ message: `No fields selected for table "${tableConfig.tsName}" ("${tableAlias}")` });
+			throw new DrizzleError({ message: `No fields selected for table "${tableConfig.tsName}" ("${tableAlias} [${realAlias}]")` });
 		}
 
 		let result;
@@ -1277,7 +1284,7 @@ export class PgDialect {
 				sql.join(
 					selection.map(({ field, tsKey, isJson }) =>
 						isJson
-							? sql`${sql.identifier(`${tableAlias}_${tsKey}`)}.${sql.identifier('data')}`
+							? sql`${sql.identifier(tableAliasMap.get(`${realAlias}_${tsKey}`)!)}.${sql.identifier('data')}`
 							: is(field, SQL.Aliased)
 							? field.sql
 							: field
@@ -1304,7 +1311,7 @@ export class PgDialect {
 
 			if (needsSubquery) {
 				result = this.buildSelectQuery({
-					table: aliasedTable(table, tableAlias),
+					table: aliasedTable(table, realAlias),
 					fields: {},
 					fieldsFlat: [{
 						path: [],
@@ -1322,15 +1329,15 @@ export class PgDialect {
 				offset = undefined;
 				orderBy = [];
 			} else {
-				result = aliasedTable(table, tableAlias);
+				result = aliasedTable(table, realAlias);
 			}
 
 			result = this.buildSelectQuery({
-				table: is(result, PgTable) ? result : new Subquery(result, {}, tableAlias),
+				table: is(result, PgTable) ? result : new Subquery(result, {}, realAlias),
 				fields: {},
 				fieldsFlat: nestedSelection.map(({ field }) => ({
 					path: [],
-					field: is(field, Column) ? aliasedTableColumn(field, tableAlias) : field,
+					field: is(field, Column) ? aliasedTableColumn(field, realAlias) : field,
 				})),
 				joins,
 				where,
@@ -1341,11 +1348,11 @@ export class PgDialect {
 			});
 		} else {
 			result = this.buildSelectQuery({
-				table: aliasedTable(table, tableAlias),
+				table: aliasedTable(table, realAlias),
 				fields: {},
 				fieldsFlat: selection.map(({ field }) => ({
 					path: [],
-					field: is(field, Column) ? aliasedTableColumn(field, tableAlias) : field,
+					field: is(field, Column) ? aliasedTableColumn(field, realAlias) : field,
 				})),
 				joins,
 				where,

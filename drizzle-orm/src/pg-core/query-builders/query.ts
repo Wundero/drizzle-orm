@@ -121,6 +121,7 @@ export class PgRelationalQuery<TResult> extends QueryPromise<TResult>
 			table: this.table,
 			tableConfig: this.tableConfig,
 			queryConfig: this.config,
+			tableAliasMap: new Map(),
 			tableAlias: this.tableConfig.tsName,
 		});
 	}

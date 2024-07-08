@@ -121,6 +121,7 @@ export class MySqlRelationalQuery<
 				tableConfig: this.tableConfig,
 				queryConfig: this.config,
 				tableAlias: this.tableConfig.tsName,
+				tableAliasMap: new Map(),
 			})
 			: this.dialect.buildRelationalQuery({
 				fullSchema: this.fullSchema,
@@ -130,6 +131,7 @@ export class MySqlRelationalQuery<
 				tableConfig: this.tableConfig,
 				queryConfig: this.config,
 				tableAlias: this.tableConfig.tsName,
+				tableAliasMap: new Map(),
 			});
 		return query;
 	}

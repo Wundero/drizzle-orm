@@ -443,6 +443,7 @@ export abstract class SQLiteDialect {
 		tableConfig,
 		queryConfig: config,
 		tableAlias,
+		tableAliasMap,
 		nestedQueryRelation,
 		joinOn,
 	}: {
@@ -453,12 +454,15 @@ export abstract class SQLiteDialect {
 		tableConfig: TableRelationalConfig;
 		queryConfig: true | DBQueryConfig<'many', true>;
 		tableAlias: string;
+		tableAliasMap: Map<string, string>;
 		nestedQueryRelation?: Relation;
 		joinOn?: SQL;
 	}): BuildRelationalQueryResult<SQLiteTable, SQLiteColumn> {
 		let selection: BuildRelationalQueryResult<SQLiteTable, SQLiteColumn>['selection'] = [];
 		let limit, offset, orderBy: SQLiteSelectConfig['orderBy'] = [], where;
 		const joins: SQLiteSelectJoinConfig[] = [];
+		const realAlias = tableAliasMap.get(tableAlias) ?? `t${tableAliasMap.size}`;
+		tableAliasMap.set(tableAlias, realAlias);
 
 		if (config === true) {
 			const selectionEntries = Object.entries(tableConfig.columns);
@@ -467,21 +471,21 @@ export abstract class SQLiteDialect {
 			) => ({
 				dbKey: value.name,
 				tsKey: key,
-				field: aliasedTableColumn(value as SQLiteColumn, tableAlias),
+				field: aliasedTableColumn(value as SQLiteColumn, realAlias),
 				relationTableTsKey: undefined,
 				isJson: false,
 				selection: [],
 			}));
 		} else {
 			const aliasedColumns = Object.fromEntries(
-				Object.entries(tableConfig.columns).map(([key, value]) => [key, aliasedTableColumn(value, tableAlias)]),
+				Object.entries(tableConfig.columns).map(([key, value]) => [key, aliasedTableColumn(value, realAlias)]),
 			);
 
 			if (config.where) {
 				const whereSql = typeof config.where === 'function'
 					? config.where(aliasedColumns, getOperators())
 					: config.where;
-				where = whereSql && mapColumnsInSQLToAlias(whereSql, tableAlias);
+				where = whereSql && mapColumnsInSQLToAlias(whereSql, realAlias);
 			}
 
 			const fieldsSelection: { tsKey: string; value: SQLiteColumn | SQL.Aliased }[] = [];
@@ -542,7 +546,7 @@ export abstract class SQLiteDialect {
 				for (const [tsKey, value] of Object.entries(extras)) {
 					fieldsSelection.push({
 						tsKey,
-						value: mapColumnsInAliasedSQLToAlias(value, tableAlias),
+						value: mapColumnsInAliasedSQLToAlias(value, realAlias),
 					});
 				}
 			}
@@ -553,7 +557,7 @@ export abstract class SQLiteDialect {
 				selection.push({
 					dbKey: is(value, SQL.Aliased) ? value.fieldAlias : tableConfig.columns[tsKey]!.name,
 					tsKey,
-					field: is(value, Column) ? aliasedTableColumn(value, tableAlias) : value,
+					field: is(value, Column) ? aliasedTableColumn(value, realAlias) : value,
 					relationTableTsKey: undefined,
 					isJson: false,
 					selection: [],
@@ -568,9 +572,9 @@ export abstract class SQLiteDialect {
 			}
 			orderBy = orderByOrig.map((orderByValue) => {
 				if (is(orderByValue, Column)) {
-					return aliasedTableColumn(orderByValue, tableAlias) as SQLiteColumn;
+					return aliasedTableColumn(orderByValue, realAlias) as SQLiteColumn;
 				}
-				return mapColumnsInSQLToAlias(orderByValue, tableAlias);
+				return mapColumnsInSQLToAlias(orderByValue, realAlias);
 			});
 
 			limit = config.limit;
@@ -588,12 +592,14 @@ export abstract class SQLiteDialect {
 				const relationTableName = getTableUniqueName(relation.referencedTable);
 				const relationTableTsName = tableNamesMap[relationTableName]!;
 				const relationTableAlias = `${tableAlias}_${selectedRelationTsKey}`;
+				const relationRealAlias = `t${tableAliasMap.size}`;
+				tableAliasMap.set(relationTableAlias, relationRealAlias);
 				// const relationTable = schema[relationTableTsName]!;
 				const joinOn = and(
 					...normalizedRelation.fields.map((field, i) =>
 						eq(
-							aliasedTableColumn(normalizedRelation.references[i]!, relationTableAlias),
-							aliasedTableColumn(field, tableAlias),
+							aliasedTableColumn(normalizedRelation.references[i]!, relationRealAlias),
+							aliasedTableColumn(field, realAlias),
 						)
 					),
 				);
@@ -609,6 +615,7 @@ export abstract class SQLiteDialect {
 							: { ...selectedRelationConfigValue, limit: 1 })
 						: selectedRelationConfigValue,
 					tableAlias: relationTableAlias,
+					tableAliasMap,
 					joinOn,
 					nestedQueryRelation: relation,
 				});
@@ -660,7 +667,7 @@ export abstract class SQLiteDialect {
 
 			if (needsSubquery) {
 				result = this.buildSelectQuery({
-					table: aliasedTable(table, tableAlias),
+					table: aliasedTable(table, realAlias),
 					fields: {},
 					fieldsFlat: [
 						{
@@ -680,15 +687,15 @@ export abstract class SQLiteDialect {
 				offset = undefined;
 				orderBy = undefined;
 			} else {
-				result = aliasedTable(table, tableAlias);
+				result = aliasedTable(table, realAlias);
 			}
 
 			result = this.buildSelectQuery({
-				table: is(result, SQLiteTable) ? result : new Subquery(result, {}, tableAlias),
+				table: is(result, SQLiteTable) ? result : new Subquery(result, {}, realAlias),
 				fields: {},
 				fieldsFlat: nestedSelection.map(({ field }) => ({
 					path: [],
-					field: is(field, Column) ? aliasedTableColumn(field, tableAlias) : field,
+					field: is(field, Column) ? aliasedTableColumn(field, realAlias) : field,
 				})),
 				joins,
 				where,
@@ -699,11 +706,11 @@ export abstract class SQLiteDialect {
 			});
 		} else {
 			result = this.buildSelectQuery({
-				table: aliasedTable(table, tableAlias),
+				table: aliasedTable(table, realAlias),
 				fields: {},
 				fieldsFlat: selection.map(({ field }) => ({
 					path: [],
-					field: is(field, Column) ? aliasedTableColumn(field, tableAlias) : field,
+					field: is(field, Column) ? aliasedTableColumn(field, realAlias) : field,
 				})),
 				joins,
 				where,
