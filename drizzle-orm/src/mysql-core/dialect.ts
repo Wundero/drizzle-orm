@@ -473,7 +473,7 @@ export class MySqlDialect {
 		table,
 		tableConfig,
 		queryConfig: config,
-		tableAlias: tableAliasOrig,
+		tableAlias,
 		tableAliasMap,
 		nestedQueryRelation,
 		joinOn,
@@ -491,8 +491,8 @@ export class MySqlDialect {
 	}): BuildRelationalQueryResult<MySqlTable, MySqlColumn> {
 		let selection: BuildRelationalQueryResult<MySqlTable, MySqlColumn>['selection'] = [];
 		let limit, offset, orderBy: MySqlSelectConfig['orderBy'], where;
-		const realAlias = tableAliasMap.get(tableAliasOrig) ?? `t${tableAliasMap.size}`;
-		tableAliasMap.set(tableAliasOrig, realAlias);
+		const realAlias = tableAliasMap.get(tableAlias) ?? `t${tableAliasMap.size}`;
+		tableAliasMap.set(tableAlias, realAlias);
 		const joins: MySqlSelectJoinConfig[] = [];
 
 		if (config === true) {
@@ -622,7 +622,7 @@ export class MySqlDialect {
 				const normalizedRelation = normalizeRelation(schema, tableNamesMap, relation);
 				const relationTableName = getTableUniqueName(relation.referencedTable);
 				const relationTableTsName = tableNamesMap[relationTableName]!;
-				const relationTableAlias = `${tableAliasOrig}_${selectedRelationTsKey}`;
+				const relationTableAlias = `${tableAlias}_${selectedRelationTsKey}`;
 				const relationRealAlias = `t${tableAliasMap.size}`;
 				tableAliasMap.set(relationTableAlias, relationRealAlias);
 				const joinOn = and(
@@ -669,7 +669,7 @@ export class MySqlDialect {
 		}
 
 		if (selection.length === 0) {
-			throw new DrizzleError({ message: `No fields selected for table "${tableConfig.tsName}" ("${tableAliasOrig}")` });
+			throw new DrizzleError({ message: `No fields selected for table "${tableConfig.tsName}" ("${tableAlias}")` });
 		}
 
 		let result;
@@ -681,7 +681,7 @@ export class MySqlDialect {
 				sql.join(
 					selection.map(({ field, tsKey, isJson }) =>
 						isJson
-							? sql`${sql.identifier(tableAliasMap.get(`${tableAliasOrig}_${tsKey}`)!)}.${sql.identifier('data')}`
+							? sql`${sql.identifier(tableAliasMap.get(`${tableAlias}_${tsKey}`)!)}.${sql.identifier('data')}`
 							: is(field, SQL.Aliased)
 							? field.sql
 							: field
